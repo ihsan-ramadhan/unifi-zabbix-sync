@@ -1,0 +1,3 @@
+sync:
+  host_group: "UniFi"
+  delete_missing: false
