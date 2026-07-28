@@ -22,16 +22,34 @@ class UniFiClient:
         }
 
     def get_devices(self):
+        devices = []
+        offset = 0
+        limit = 50
 
-        url = f"{self.base_url}/proxy/network/integration/v1/sites/{self.site_id}/devices"
+        while True:
+            url = f"{self.base_url}/proxy/network/integration/v1/sites/{self.site_id}/devices"
+            params = {
+                "offset": offset,
+                "limit": limit
+            }
 
-        response = requests.get(
-            url,
-            headers=self.headers,
-            verify=self.verify_ssl,
-            timeout=30
-        )
+            response = requests.get(
+                url,
+                headers=self.headers,
+                params=params,
+                verify=self.verify_ssl,
+                timeout=30
+            )
 
-        response.raise_for_status()
+            response.raise_for_status()
+            res_json = response.json()
 
-        return response.json()
+            data = res_json.get("data", [])
+            devices.extend(data)
+
+            if len(devices) >= res_json.get("totalCount", 0) or not data:
+                break
+
+            offset += limit
+
+        return devices

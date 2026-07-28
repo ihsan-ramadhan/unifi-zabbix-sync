@@ -1,3 +1,7 @@
 sync:
   host_group: "UniFi"
   delete_missing: false
+  templates:
+    uap: "Template Net Ubiquiti UniFi AP SNMP"
+    usw: "Template Net Ubiquiti UniFi Switch SNMP"
+    default: "Template Net ICMP Ping"
