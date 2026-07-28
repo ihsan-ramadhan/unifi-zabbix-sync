@@ -14,6 +14,7 @@ class UniFiZabbixSync:
         self.unifi = UniFiClient()
         self.zbx = ZabbixClient()
         self.sync_cfg = config_data.get("sync", {})
+        self.zbx_cfg = config_data.get("zabbix", {})
         self.group_name = self.sync_cfg.get("host_group", "UniFi")
         self.host_groups_cfg = self.sync_cfg.get("host_groups", {})
         self.default_host_groups = {
@@ -23,6 +24,7 @@ class UniFiZabbixSync:
             "default": self.group_name
         }
         self.group_cache = {}
+        self.snmp_community = self.zbx_cfg.get("snmp_community", "zabbix")
         self.delete_missing = self.sync_cfg.get("delete_missing", False)
         self.template_mappings = self.sync_cfg.get("templates", {})
 
@@ -75,6 +77,7 @@ class UniFiZabbixSync:
                 groupids=managed_group_ids,
                 output=["hostid", "host", "name"],
                 selectGroups=["groupid", "name"],
+                selectParentTemplates=["templateid", "host"],
                 selectInterfaces=["interfaceid", "ip", "main", "type", "port", "details"],
                 selectInventory=["macaddress_a", "model", "software", "hardware"]
             )
@@ -113,12 +116,11 @@ class UniFiZabbixSync:
             tpl_id = template_ids.get(dev_type) or template_ids.get("default")
             templates = [{"templateid": tpl_id}] if tpl_id else []
 
-            # Interface setup: SNMP (Type 2), port 161, version 2c, community public
-            # ponytail: SNMP details hardcoded. Upgrade to configurable SNMP v2/v3 when needed.
+            # Interface setup: SNMP (Type 2), port 161, version 2 (SNMPv2c), community dynamic
             interface_details = {
                 "version": 2,
                 "bulk": 1,
-                "community": "public"
+                "community": self.snmp_community
             }
 
             zbx_host = zbx_map.get(host_key)
@@ -161,16 +163,30 @@ class UniFiZabbixSync:
                 if current_group_ids != {group_id}:
                     updates["groups"] = [{"groupid": group_id}]
 
+                # Check if templates need to be updated
+                current_tpl_ids = {t["templateid"] for t in zbx_host.get("parentTemplates", [])}
+                target_tpl_ids = {t["templateid"] for t in templates}
+                if current_tpl_ids != target_tpl_ids:
+                    updates["templates"] = templates
+                    # Unlink and clear old templates that are no longer targeted
+                    old_tpls_to_clear = [{"templateid": tid} for tid in current_tpl_ids if tid not in target_tpl_ids]
+                    if old_tpls_to_clear:
+                        updates["templates_clear"] = old_tpls_to_clear
+
                 # Primary SNMP interface update check
                 primary = next((i for i in zbx_host.get("interfaces", []) if i["main"] == "1" and i["type"] == "2"), None)
                 if primary:
-                    if primary["ip"] != ip:
+                    current_details = primary.get("details", {})
+                    current_community = current_details.get("community")
+                    current_version = str(current_details.get("version", ""))
+                    if primary["ip"] != ip or current_community != self.snmp_community or current_version != "2":
                         try:
                             self.zbx.zapi.hostinterface.update(
                                 interfaceid=primary["interfaceid"],
-                                ip=ip
+                                ip=ip,
+                                details=interface_details
                             )
-                            logger.info("Updated IP for %s: %s", dev_name, ip)
+                            logger.info("Updated interface details for %s (IP: %s, Community: %s, Version: SNMPv2c)", dev_name, ip, self.snmp_community)
                         except Exception as e:
                             logger.error("Interface update failed %s: %s", dev_name, e)
                 else:
