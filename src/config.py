@@ -25,6 +25,7 @@ class Config:
         data.setdefault("zabbix", {})
         data["zabbix"]["url"] = os.environ["ZABBIX_URL"]
         data["zabbix"]["token"] = os.environ["ZABBIX_TOKEN"]
+        data["zabbix"]["snmp_community"] = os.environ.get("ZABBIX_SNMP_COMMUNITY", "zabbix")
 
         self.data = data
 
